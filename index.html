@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>原稿用紙入力ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Serif JP', serif;
+            background-color: #f4f1ea;
+        }
+        /* 原稿用紙のコンテナ */
+        .paper-container {
+            position: relative;
+            width: calc(24 * 2.2rem); /* 24マス分の幅 */
+            margin: 2rem auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background-color: white;
+            padding: 1rem;
+            border: 1px solid #ddd;
+        }
+        /* マス目のグリッド */
+        .genko-grid {
+            display: grid;
+            grid-template-columns: repeat(24, 1fr);
+            grid-template-rows: repeat(25, 1fr);
+            width: calc(24 * 2rem);
+            height: calc(25 * 2rem);
+            margin: auto;
+            border-right: 1px dashed #d6c6ac;
+            border-bottom: 1px dashed #d6c6ac;
+        }
+        /* 各マス */
+        .genko-cell {
+            width: 2rem;
+            height: 2rem;
+            border-left: 1px dashed #d6c6ac;
+            border-top: 1px dashed #d6c6ac;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.2rem;
+            color: #333;
+            box-sizing: border-box;
+            line-height: 2rem;
+            overflow: hidden;
+        }
+        /* 入力用のテキストエリア */
+        .genko-textarea {
+            position: absolute;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(24 * 2rem);
+            height: calc(25 * 2rem);
+            background: rgba(255, 228, 196, 0.1); /* デバッグ用に少し色付け */
+            color: transparent; /* テキストは見えないようにする */
+            caret-color: #333; /* カーソルは見せる */
+            border: none;
+            outline: none;
+            resize: none;
+            font-family: 'Noto Serif JP', serif;
+            font-size: 1.2rem; /* マス目と合わせる */
+            line-height: 2rem; /* マス目と合わせる */
+            letter-spacing: 0.8rem; /* マス目と合わせる */
+            padding-left: 0.4rem; /* 文字位置の微調整 */
+            padding-top: 0;
+            box-sizing: border-box;
+            overflow: hidden; /* スクロールバーを非表示 */
+            white-space: pre; /* 改行を保持 */
+        }
+
+        /* モーダル */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-700">原稿用紙入力ツール</h1>
+            <p class="text-gray-500 mt-2">文字を入力すると、下の原稿用紙に反映されます。</p>
+        </header>
+
+        <!-- 操作パネル -->
+        <div class="bg-white p-4 rounded-lg shadow-md mb-8 flex flex-col sm:flex-row justify-center items-center gap-4 sticky top-4 z-50">
+            <div class="flex items-center gap-4">
+                <button id="export-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    テキストを出力
+                </button>
+            </div>
+            <div class="text-lg font-semibold bg-gray-100 px-4 py-2 rounded-md">
+                総文字数: <span id="char-count" class="font-bold text-indigo-600">0</span>
+            </div>
+            <div class="text-lg font-semibold bg-gray-100 px-4 py-2 rounded-md">
+                総枚数: <span id="page-count" class="font-bold text-green-600">1</span>
+            </div>
+        </div>
+
+        <!-- 原稿用紙が追加されるコンテナ -->
+        <div id="papers-container"></div>
+
+    </div>
+
+    <!-- 出力用モーダル -->
+    <div id="export-modal" class="modal-overlay hidden">
+        <div class="bg-white p-8 rounded-lg shadow-2xl w-11/12 md:w-2/3 max-w-3xl relative">
+            <h2 class="text-2xl font-bold mb-4">出力テキスト</h2>
+            <textarea id="exported-text" readonly class="w-full h-64 p-3 border border-gray-300 rounded-md bg-gray-50 resize-none"></textarea>
+            <div class="mt-6 flex flex-wrap justify-end gap-3">
+                 <button id="copy-text-btn" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">クリップボードにコピー</button>
+                 <button id="download-txt-btn" class="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">TXT形式でダウンロード</button>
+                <button id="close-modal-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const papersContainer = document.getElementById('papers-container');
+            const exportBtn = document.getElementById('export-btn');
+            const charCountSpan = document.getElementById('char-count');
+            const pageCountSpan = document.getElementById('page-count'); // 枚数表示用の要素を取得
+            
+            const exportModal = document.getElementById('export-modal');
+            const closeModalBtn = document.getElementById('close-modal-btn');
+            const exportedTextarea = document.getElementById('exported-text');
+            const copyTextBtn = document.getElementById('copy-text-btn');
+            const downloadTxtBtn = document.getElementById('download-txt-btn');
+
+            const COLS = 24;
+            const ROWS = 25;
+            const MAX_CELLS_PER_PAPER = COLS * ROWS;
+
+            // 新しい原稿用紙のDOMを作成する関数
+            const createNewPaper = () => {
+                const paperWrapper = document.createElement('div');
+                paperWrapper.className = 'paper-container';
+
+                const grid = document.createElement('div');
+                grid.className = 'genko-grid';
+                for (let i = 0; i < MAX_CELLS_PER_PAPER; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'genko-cell';
+                    grid.appendChild(cell);
+                }
+
+                const textarea = document.createElement('textarea');
+                textarea.className = 'genko-textarea';
+                textarea.setAttribute('spellcheck', 'false');
+
+                paperWrapper.appendChild(grid);
+                paperWrapper.appendChild(textarea);
+                papersContainer.appendChild(paperWrapper);
+            };
+            
+            // 全てのテキストを再計算・再配置するコア関数
+            const reflowText = () => {
+                // 1. カーソル位置を保存
+                const activeTextarea = document.activeElement;
+                const isTextareaActive = activeTextarea && activeTextarea.classList.contains('genko-textarea');
+                let absoluteCursorPosition = 0;
+
+                if (isTextareaActive) {
+                    const allTextareas = Array.from(papersContainer.querySelectorAll('.genko-textarea'));
+                    const activeIndex = allTextareas.indexOf(activeTextarea);
+                    for (let i = 0; i < activeIndex; i++) {
+                        absoluteCursorPosition += allTextareas[i].value.length;
+                    }
+                    absoluteCursorPosition += activeTextarea.selectionStart;
+                }
+
+                // 2. 全てのテキストを結合
+                const fullText = Array.from(papersContainer.querySelectorAll('.genko-textarea'))
+                                    .map(ta => ta.value)
+                                    .join('');
+
+                // 3. テキストを用紙ごとに再分割（ロジック改善）
+                let paperTexts = [""];
+                let currentPaperIndex = 0;
+                let cellsConsumed = 0;
+
+                for (const char of fullText) {
+                    let cellsToConsume = (char === '\n') ? COLS - (cellsConsumed % COLS) : 1;
+                    if (cellsConsumed + cellsToConsume > MAX_CELLS_PER_PAPER) {
+                        currentPaperIndex++;
+                        paperTexts.push("");
+                        cellsConsumed = 0;
+                        cellsToConsume = (char === '\n') ? COLS - (cellsConsumed % COLS) : 1;
+                    }
+                    paperTexts[currentPaperIndex] += char;
+                    cellsConsumed += cellsToConsume;
+                }
+
+                // 4. 用紙の数を同期
+                while (papersContainer.children.length > paperTexts.length && papersContainer.children.length > 1) {
+                    papersContainer.removeChild(papersContainer.lastChild);
+                }
+                while (papersContainer.children.length < paperTexts.length) {
+                    createNewPaper();
+                }
+
+                // 5. 各用紙のテキストエリアとグリッドを更新
+                const finalTextareas = papersContainer.querySelectorAll('.genko-textarea');
+                const finalGrids = papersContainer.querySelectorAll('.genko-grid');
+                finalTextareas.forEach((textarea, index) => {
+                    const newText = paperTexts[index] || "";
+                    if (textarea.value !== newText) {
+                        textarea.value = newText;
+                    }
+                    updateGridDisplay(textarea, finalGrids[index]);
+                });
+                
+                // 6. カーソル位置を復元
+                if (isTextareaActive) {
+                    let newPaperIndex = 0;
+                    let cursorInNewPaper = absoluteCursorPosition;
+                    for (let i = 0; i < paperTexts.length; i++) {
+                        if (cursorInNewPaper <= paperTexts[i].length) {
+                            newPaperIndex = i;
+                            break;
+                        }
+                        cursorInNewPaper -= paperTexts[i].length;
+                    }
+                    const targetTextarea = papersContainer.querySelectorAll('.genko-textarea')[newPaperIndex];
+                    if (targetTextarea) {
+                        targetTextarea.focus();
+                        const finalCursorPos = Math.min(cursorInNewPaper, targetTextarea.value.length);
+                        targetTextarea.selectionStart = targetTextarea.selectionEnd = finalCursorPos;
+                    }
+                }
+                
+                updateTotalCharCount();
+                updatePageCount(); // 枚数を更新
+            };
+
+            // グリッドの表示を更新する関数
+            const updateGridDisplay = (textarea, grid) => {
+                const text = textarea.value;
+                const cells = grid.children;
+                Array.from(cells).forEach(cell => cell.textContent = '');
+                let cellIndex = 0;
+                for (const char of text) {
+                    if (cellIndex >= cells.length) break;
+                    if (char === '\n') {
+                        cellIndex += COLS - (cellIndex % COLS);
+                    } else {
+                        if (cellIndex < cells.length) {
+                           cells[cellIndex].textContent = char;
+                        }
+                        cellIndex++;
+                    }
+                }
+            };
+            
+            // 総文字数を更新する関数
+            const updateTotalCharCount = () => {
+                const allTextareas = papersContainer.querySelectorAll('.genko-textarea');
+                let totalChars = 0;
+                allTextareas.forEach(ta => {
+                    totalChars += ta.value.replace(/\n/g, '').length;
+                });
+                charCountSpan.textContent = totalChars;
+            };
+
+            // 総枚数を更新する関数
+            const updatePageCount = () => {
+                pageCountSpan.textContent = papersContainer.children.length || 1;
+            };
+
+            // イベントリスナー
+            papersContainer.addEventListener('input', (event) => {
+                if (event.target.classList.contains('genko-textarea')) {
+                    requestAnimationFrame(reflowText);
+                }
+            });
+
+            // テキスト出力ボタンの処理
+            exportBtn.addEventListener('click', () => {
+                const fullText = Array.from(papersContainer.querySelectorAll('.genko-textarea')).map(ta => ta.value).join('');
+                exportedTextarea.value = fullText;
+                exportModal.classList.remove('hidden');
+            });
+
+            // --- モーダルのボタン処理 ---
+            closeModalBtn.addEventListener('click', () => exportModal.classList.add('hidden'));
+            exportModal.addEventListener('click', (e) => {
+                if (e.target === exportModal) exportModal.classList.add('hidden');
+            });
+            copyTextBtn.addEventListener('click', () => {
+                exportedTextarea.select();
+                document.execCommand('copy');
+                copyTextBtn.textContent = 'コピーしました！';
+                setTimeout(() => { copyTextBtn.textContent = 'クリップボードにコピー'; }, 2000);
+            });
+            downloadTxtBtn.addEventListener('click', () => {
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                const timestamp = `${year}${month}${day}${hours}${minutes}${seconds}`;
+                const filename = `原稿_${timestamp}.txt`;
+                const blob = new Blob([exportedTextarea.value], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+
+            // --- 初期化 ---
+            createNewPaper();
+            updatePageCount(); // 初期枚数を設定
+        });
+    </script>
+</body>
+</html>
